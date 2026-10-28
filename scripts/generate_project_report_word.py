@@ -138,6 +138,28 @@ def add_heading_2(doc, title):
     run.font.color.rgb = RGBColor(0, 0, 0)
     return p
 
+def add_link_paragraph(doc, label_text, url_text):
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p.paragraph_format.first_line_indent = Cm(1.0)
+    p.paragraph_format.line_spacing = 1.2
+    p.paragraph_format.space_before = Pt(3)
+    p.paragraph_format.space_after = Pt(3)
+    
+    run_label = p.add_run(label_text + " ")
+    run_label.font.name = 'Times New Roman'
+    run_label.font.size = Pt(12)
+    run_label.font.bold = True
+    run_label.font.color.rgb = RGBColor(0, 0, 0)
+    
+    run_link = p.add_run(url_text)
+    run_link.font.name = 'Times New Roman'
+    run_link.font.size = Pt(12)
+    run_link.font.bold = True
+    run_link.font.underline = True
+    run_link.font.color.rgb = RGBColor(0, 102, 204)
+    return p
+
 def add_body_paragraph(doc, text):
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
@@ -579,6 +601,7 @@ def build_full_report():
                      headers_schema, data_schema, col_widths=[Inches(1.5), Inches(1.0), Inches(3.4)])
     
     add_heading_1(doc, "1.3. Kiến trúc hệ thống tổng thể")
+    add_link_paragraph(doc, "Kho mã nguồn chính thức (GitHub Repository):", "https://github.com/QuanPhan78/-n-big-data")
     add_body_paragraph(doc, 
         "Hệ thống được thiết kế theo mô hình kiến trúc phân tầng chuyên biệt cho xử lý dữ liệu lớn, triển khai thông qua cụm Docker Compose gồm 4 tầng phân tách:")
     add_bullet_item(doc, "Tầng 1 - Lưu trữ phân tán: Cụm Apache HDFS gồm 1 NameNode và 2 DataNodes, chịu trách nhiệm lưu trữ Data Lake phân cấp an toàn với hệ số nhân bản dữ liệu replication = 2.", level=1)
@@ -843,9 +866,10 @@ def build_full_report():
                      headers_matrix, data_matrix, col_widths=[Inches(1.2), Inches(1.2), Inches(2.0), Inches(1.5)])
     
     add_heading_1(doc, "6.2. Hướng dẫn cài đặt và tái hiện hệ thống")
+    add_link_paragraph(doc, "Liên kết truy cập kho lưu trữ GitHub:", "https://github.com/QuanPhan78/-n-big-data")
     add_body_paragraph(doc, 
         "Hệ thống có thể được tái hiện hoàn toàn trên môi trường máy tính mới chỉ với 3 bước chuẩn hóa được hướng dẫn chi tiết trong tệp tin README.md:")
-    add_bullet_item(doc, "Bước 1 (Khởi động cụm Docker): docker-compose up -d (khởi động 6 container: namenode, datanode1, datanode2, spark-master, spark-worker, mlflow).", level=1)
+    add_bullet_item(doc, "Bước 1 (Tải mã nguồn & Khởi động cụm Docker): git clone https://github.com/QuanPhan78/-n-big-data.git && docker-compose up -d (khởi động 6 container: namenode, datanode1, datanode2, spark-master, spark-worker, mlflow).", level=1)
     add_bullet_item(doc, "Bước 2 (Chạy pipeline tự động): python scripts/execute_pipeline_m2.py (tự động nạp dữ liệu vào HDFS, chạy Spark ETL và phân tích SQL).", level=1)
     add_bullet_item(doc, "Bước 3 (Khởi chạy Dashboard): streamlit run dashboard/app.py (truy cập trình duyệt tại địa chỉ http://localhost:8501).", level=1)
     
