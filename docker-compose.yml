@@ -1,0 +1,199 @@
+# ============================================================
+# NYC Ride-Hailing Big Data Stack
+# Tối ưu cho: i5-1135G7, ~15GB RAM, Windows + Docker Desktop
+# ============================================================
+version: "3.8"
+
+services:
+
+  # ---- HDFS ----
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    restart: unless-stopped
+    environment:
+      - CLUSTER_NAME=nyc-cluster
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - HDFS_CONF_dfs_replication=2
+    ports:
+      - "9870:9870"   # HDFS Web UI → http://localhost:9870
+      - "9000:9000"   # HDFS RPC
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+      - D:/nyc_data:/data  # Mount local data/ vào container
+    networks:
+      - bigdata-net
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    restart: unless-stopped
+    depends_on:
+      - namenode
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - HDFS_CONF_dfs_replication=2
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+    networks:
+      - bigdata-net
+
+  datanode2:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode2
+    restart: unless-stopped
+    depends_on:
+      - namenode
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - HDFS_CONF_dfs_replication=2
+    volumes:
+      - hadoop_datanode2:/hadoop/dfs/data
+    networks:
+      - bigdata-net
+
+  # ---- SPARK ----
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: spark-master
+    restart: unless-stopped
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+    ports:
+      - "8080:8080"   # Spark Master UI → http://localhost:8080
+      - "7077:7077"   # Spark RPC
+    volumes:
+      - ./spark:/opt/bitnami/spark/jobs
+      - ./ml:/opt/bitnami/spark/ml
+      - D:/nyc_data:/data
+    networks:
+      - bigdata-net
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    container_name: spark-worker
+    restart: unless-stopped
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=4G     # Giới hạn 4GB cho worker (còn lại cho OS/Airflow)
+      - SPARK_WORKER_CORES=2       # Dùng 2/4 cores
+    volumes:
+      - ./spark:/opt/bitnami/spark/jobs
+      - D:/nyc_data:/data
+    networks:
+      - bigdata-net
+
+  # ---- KAFKA ----
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - bigdata-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"   # Kafka broker
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - bigdata-net
+
+  # ---- MLFLOW ----
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.13.0
+    container_name: mlflow
+    restart: unless-stopped
+    ports:
+      - "5000:5000"   # MLflow UI → http://localhost:5000
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlflow/mlflow.db --artifacts-destination /mlflow/artifacts --serve-artifacts
+    volumes:
+      - mlflow_data:/mlflow
+    networks:
+      - bigdata-net
+
+  # ---- AIRFLOW (khởi động sau cùng, tốn RAM nhất) ----
+  airflow:
+    image: apache/airflow:2.9.1-python3.11
+    container_name: airflow
+    restart: unless-stopped
+    depends_on:
+      - spark-master
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__WEBSERVER__SECRET_KEY=nyc-bigdata-secret-2025
+    ports:
+      - "8081:8080"   # Airflow UI → http://localhost:8081
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./scripts:/opt/scripts
+      - ./spark:/opt/spark
+      - ./ml:/opt/ml
+      - airflow_data:/opt/airflow
+    command: >
+      bash -c "
+        airflow db migrate &&
+        airflow users create --username admin --password admin
+          --firstname Admin --lastname User
+          --role Admin --email admin@example.com 2>/dev/null || true &&
+        airflow webserver &
+        airflow scheduler
+      "
+    networks:
+      - bigdata-net
+
+  # ---- STREAMLIT DASHBOARD ----
+  streamlit:
+    image: python:3.11-slim
+    container_name: streamlit
+    restart: unless-stopped
+    ports:
+      - "8501:8501"   # Streamlit UI → http://localhost:8501
+    environment:
+      - DATA_PATH=/app/data/processed/demand_features_2025.parquet
+      - SQL_RESULTS_DIR=/app/data/output/sql_results
+    volumes:
+      - ./dashboard:/app/dashboard
+      - ./data:/app/data
+      - D:/nyc_data:/data
+    working_dir: /app
+    command: >
+      bash -c "
+        pip install --no-cache-dir streamlit pandas pyarrow fastparquet plotly folium streamlit-folium &&
+        streamlit run dashboard/app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
+      "
+    networks:
+      - bigdata-net
+
+volumes:
+  hadoop_namenode:
+  hadoop_datanode:
+  hadoop_datanode2:
+  mlflow_data:
+  airflow_data:
+
+networks:
+  bigdata-net:
+    driver: bridge

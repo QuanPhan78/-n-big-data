@@ -1,0 +1,26 @@
+# Data directories (heavy raw/processed datasets)
+data/
+*.parquet
+*.csv.gz
+
+# Python & Environment
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+env/
+.env
+
+# ML experiments & logs
+mlruns/
+mlflow.db
+logs/
+*.log
+
+# Office & Temporary files
+~$*
+*.tmp
+*.crdownload
+.DS_Store
+Thumbs.db
